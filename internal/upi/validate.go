@@ -8,7 +8,7 @@ import (
 )
 
 var (
-	ErrEmptyURI     = errors.New("upi uri is required")
+	ErrEmptyURI      = errors.New("upi uri is required")
 	ErrInvalidScheme = errors.New("upi uri must use upi:// scheme")
 	ErrInvalidAction = errors.New("upi uri must target upi://pay")
 )

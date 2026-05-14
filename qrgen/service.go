@@ -1,7 +1,10 @@
 package qrgen
 
 import (
+	"io"
+
 	"github.com/mohammadkhizerkhan/qr_generation/internal/batch"
+	"github.com/mohammadkhizerkhan/qr_generation/internal/config"
 	"github.com/mohammadkhizerkhan/qr_generation/internal/render"
 )
 
@@ -16,18 +19,31 @@ type CardRequest struct {
 	BackgroundColor string `json:"background_color,omitempty"`
 	AccentColor     string `json:"accent_color,omitempty"`
 	TextColor       string `json:"text_color,omitempty"`
+	TemplateID      string `json:"template_id,omitempty"`
 }
 
 type Service struct {
+	config   *config.Config
 	renderer *render.Renderer
 	batch    *batch.Service
 }
 
 func NewService() *Service {
-	renderer := render.NewRenderer()
+	defaultConfig := config.DefaultConfig()
+	return NewServiceWithConfig(&defaultConfig)
+}
+
+func NewServiceWithConfig(cfg *config.Config) *Service {
+	if cfg == nil {
+		defaultConfig := config.DefaultConfig()
+		cfg = &defaultConfig
+	}
+
+	renderer := render.NewRendererWithConfig(cfg)
 	return &Service{
+		config:   cfg,
 		renderer: renderer,
-		batch:    batch.NewService(renderer),
+		batch:    batch.NewService(renderer, cfg.Batch),
 	}
 }
 
@@ -43,6 +59,18 @@ func (s *Service) RenderArchive(items []CardRequest) ([]byte, error) {
 	return s.batch.BuildArchive(converted)
 }
 
+func (s *Service) RenderArchiveToWriter(items []CardRequest, writer io.Writer) error {
+	converted := make([]render.CardInput, 0, len(items))
+	for _, item := range items {
+		converted = append(converted, toCardInput(item))
+	}
+	return s.batch.BuildArchiveToWriter(writer, converted)
+}
+
+func (s *Service) StreamBatchEnabled() bool {
+	return s.config != nil && s.config.Batch.StreamResponse
+}
+
 func toCardInput(req CardRequest) render.CardInput {
 	return render.CardInput{
 		UPIURI:        req.UPIURI,
@@ -55,5 +83,6 @@ func toCardInput(req CardRequest) render.CardInput {
 		BackgroundHex: req.BackgroundColor,
 		AccentHex:     req.AccentColor,
 		TextHex:       req.TextColor,
+		TemplateID:    req.TemplateID,
 	}
 }

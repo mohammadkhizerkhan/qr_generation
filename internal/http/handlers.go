@@ -55,6 +55,15 @@ func (h *Handler) batch(w http.ResponseWriter, r *http.Request) {
 		items = append(items, qrgen.CardRequest(item))
 	}
 
+	if h.service.StreamBatchEnabled() {
+		w.Header().Set("Content-Type", "application/zip")
+		w.Header().Set("Content-Disposition", "attachment; filename=upi-batch-"+time.Now().UTC().Format("20060102-150405")+".zip")
+		if err := h.service.RenderArchiveToWriter(items, w); err != nil {
+			return
+		}
+		return
+	}
+
 	archiveData, err := h.service.RenderArchive(items)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())

@@ -11,6 +11,7 @@ type GenerateRequest struct {
 	BackgroundColor string `json:"background_color,omitempty"`
 	AccentColor     string `json:"accent_color,omitempty"`
 	TextColor       string `json:"text_color,omitempty"`
+	TemplateID      string `json:"template_id,omitempty"`
 }
 
 type BatchGenerateRequest struct {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"image"
 	"image/png"
+	"strings"
 
 	qrcode "github.com/skip2/go-qrcode"
 )
@@ -15,13 +16,30 @@ type Generator struct {
 }
 
 func NewGenerator(size int) *Generator {
+	return NewGeneratorWithLevel(size, "M")
+}
+
+func NewGeneratorWithLevel(size int, level string) *Generator {
 	if size <= 0 {
 		size = 640
 	}
 
 	return &Generator{
 		Size:  size,
-		Level: qrcode.Medium,
+		Level: parseRecoveryLevel(level),
+	}
+}
+
+func parseRecoveryLevel(level string) qrcode.RecoveryLevel {
+	switch strings.ToUpper(strings.TrimSpace(level)) {
+	case "L":
+		return qrcode.Low
+	case "Q":
+		return qrcode.High
+	case "H":
+		return qrcode.Highest
+	default:
+		return qrcode.Medium
 	}
 }
 

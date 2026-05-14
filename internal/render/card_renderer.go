@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"fmt"
 	"image"
-	"image/color"
 	_ "image/jpeg"
 	"image/png"
 	"math"
@@ -15,6 +14,7 @@ import (
 	"golang.org/x/image/draw"
 	"golang.org/x/image/font/basicfont"
 
+	"github.com/mohammadkhizerkhan/qr_generation/internal/config"
 	"github.com/mohammadkhizerkhan/qr_generation/internal/qr"
 	"github.com/mohammadkhizerkhan/qr_generation/internal/upi"
 )
@@ -30,19 +30,28 @@ type CardInput struct {
 	BackgroundHex string
 	AccentHex     string
 	TextHex       string
+	TemplateID    string
 }
 
 type Renderer struct {
-	qr     *qr.Generator
-	layout Layout
-	style  Style
+	config      *config.Config
+	fontManager *FontManager
 }
 
 func NewRenderer() *Renderer {
+	defaultConfig := config.DefaultConfig()
+	return NewRendererWithConfig(&defaultConfig)
+}
+
+func NewRendererWithConfig(cfg *config.Config) *Renderer {
+	if cfg == nil {
+		defaults := config.DefaultConfig()
+		cfg = &defaults
+	}
+
 	return &Renderer{
-		qr:     qr.NewGenerator(DefaultLayout().QRSize),
-		layout: DefaultLayout(),
-		style:  DefaultStyle(),
+		config:      cfg,
+		fontManager: NewFontManager(cfg.Typography),
 	}
 }
 
@@ -78,86 +87,121 @@ func (r *Renderer) RenderPNG(input CardInput) ([]byte, error) {
 		providerName = "Powered by QR Generation"
 	}
 
-	style, err := r.resolveStyle(input)
+	templateID := strings.TrimSpace(input.TemplateID)
+	if templateID == "" {
+		templateID = r.config.DefaultTemplate
+	}
+	template, ok := r.config.Templates[templateID]
+	if !ok {
+		return nil, fmt.Errorf("unknown template_id %q", templateID)
+	}
+
+	layout, err := BuildLayout(template.Layout)
 	if err != nil {
 		return nil, err
 	}
 
-	qrImage, err := r.qr.Image(validated.Raw)
+	templateStyle, err := BuildStyle(template.Style)
 	if err != nil {
 		return nil, err
 	}
 
-	dc := gg.NewContext(r.layout.Width, r.layout.Height)
+	style, err := r.resolveStyle(templateStyle, input)
+	if err != nil {
+		return nil, err
+	}
+
+	renderScale := max(r.config.Quality.RenderScale, 1)
+	qrGenerator := qr.NewGeneratorWithLevel(layout.QRSize*renderScale, r.config.Quality.QRRecoveryLevel)
+
+	qrImage, err := qrGenerator.Image(validated.Raw)
+	if err != nil {
+		return nil, err
+	}
+
+	dc := gg.NewContext(layout.Width*renderScale, layout.Height*renderScale)
 	dc.SetColor(style.Background)
 	dc.Clear()
 
 	dc.SetColor(style.Accent)
-	dc.DrawRoundedRectangle(50, 55, float64(r.layout.Width-100), 40, 18)
+	topBar := scaleRect(layout.TopBar, renderScale)
+	dc.DrawRoundedRectangle(float64(topBar.Min.X), float64(topBar.Min.Y), float64(topBar.Dx()), float64(topBar.Dy()), layout.TopBarRadius*float64(renderScale))
 	dc.Fill()
 
 	dc.SetColor(style.Panel)
-	dc.DrawRoundedRectangle(90, 380, float64(r.layout.Width-180), float64(r.layout.QRSize+90), 30)
+	panel := scaleRect(layout.Panel, renderScale)
+	dc.DrawRoundedRectangle(float64(panel.Min.X), float64(panel.Min.Y), float64(panel.Dx()), float64(panel.Dy()), layout.CornerRadius*float64(renderScale))
 	dc.Fill()
 
 	dc.SetColor(style.Text)
-	dc.SetFontFace(basicfont.Face7x13)
-	drawCenteredLines(dc, strings.ToUpper(merchantName), float64(r.layout.Width)/2, r.layout.HeaderY, 3)
+	r.setFont(dc, r.config.Typography.HeaderFont, r.config.Typography.HeaderSize*float64(renderScale))
+	drawCenteredLines(dc, strings.ToUpper(merchantName), float64(layout.Width*renderScale)/2, layout.HeaderY*float64(renderScale), layout.TextWrapChars)
 
 	dc.SetColor(style.Muted)
-	drawCenteredLines(dc, "UPI ID: "+merchantUPIID, float64(r.layout.Width)/2, r.layout.UPIIDY, 2)
-	drawCenteredLines(dc, description, float64(r.layout.Width)/2, r.layout.DescriptionY, 2)
-	drawCenteredLines(dc, "Scan with any supported UPI app", float64(r.layout.Width)/2, 365, 2)
+	r.setFont(dc, r.config.Typography.BodyFont, r.config.Typography.BodySize*float64(renderScale))
+	drawCenteredLines(dc, "UPI ID: "+merchantUPIID, float64(layout.Width*renderScale)/2, layout.UPIIDY*float64(renderScale), layout.TextWrapChars)
+	drawCenteredLines(dc, description, float64(layout.Width*renderScale)/2, layout.DescriptionY*float64(renderScale), layout.TextWrapChars)
+	drawCenteredLines(dc, "Scan with any supported UPI app", float64(layout.Width*renderScale)/2, layout.HintY*float64(renderScale), layout.TextWrapChars)
 
-	dc.DrawImage(qrImage, r.layout.QRX, r.layout.QRY)
+	dc.DrawImage(qrImage, layout.QRX*renderScale, layout.QRY*renderScale)
 
 	dc.SetColor(style.Accent)
-	dc.DrawRoundedRectangle(200, float64(r.layout.FooterY-25), 500, 150, 26)
+	footer := scaleRect(layout.Footer, renderScale)
+	dc.DrawRoundedRectangle(float64(footer.Min.X), float64(footer.Min.Y), float64(footer.Dx()), float64(footer.Dy()), layout.FooterRadius*float64(renderScale))
 	dc.Fill()
 
 	logoImage, err := decodeBase64Image(input.LogoBase64)
 	if err != nil {
 		return nil, err
 	}
+	logoRect := ResolveLogoRect(layout.Width, layout.Footer, template.Logo)
+	logoRect = scaleRect(logoRect, renderScale)
 	if logoImage != nil {
-		resized := resizeImage(logoImage, r.layout.LogoWidth, r.layout.LogoHeight)
-		dc.DrawImage(resized, r.layout.LogoX, r.layout.LogoY)
+		resized := resizeImage(logoImage, logoRect.Dx(), logoRect.Dy())
+		dc.DrawImage(resized, logoRect.Min.X, logoRect.Min.Y)
 	} else {
-		dc.SetColor(color.White)
-		drawCenteredLines(dc, providerName, float64(r.layout.Width)/2, float64(r.layout.FooterY+40), 2)
+		dc.SetColor(style.FooterText)
+		r.setFont(dc, r.config.Typography.FooterFont, r.config.Typography.FooterSize*float64(renderScale))
+		drawCenteredLines(dc, providerName, float64(layout.Width*renderScale)/2, float64(logoRect.Min.Y+logoRect.Dy()/2), layout.TextWrapChars)
 	}
 
 	if strings.TrimSpace(input.PayerName) != "" {
 		dc.SetColor(style.Muted)
-		drawCenteredLines(dc, "Payer: "+strings.TrimSpace(input.PayerName), float64(r.layout.Width)/2, 1110, 2)
+		drawCenteredLines(dc, "Payer: "+strings.TrimSpace(input.PayerName), float64(layout.Width*renderScale)/2, layout.PayerY*float64(renderScale), layout.TextWrapChars)
+	}
+
+	finalImage := dc.Image()
+	if renderScale > 1 {
+		finalImage = resizeImage(finalImage, layout.Width, layout.Height)
 	}
 
 	var buf bytes.Buffer
-	if err := png.Encode(&buf, dc.Image()); err != nil {
+	encoder := png.Encoder{CompressionLevel: png.CompressionLevel(r.config.Quality.PNGCompressionLevel)}
+	if err := encoder.Encode(&buf, finalImage); err != nil {
 		return nil, fmt.Errorf("encode card png: %w", err)
 	}
 
 	return buf.Bytes(), nil
 }
 
-func (r *Renderer) resolveStyle(input CardInput) (Style, error) {
-	style := r.style
+func (r *Renderer) resolveStyle(base Style, input CardInput) (Style, error) {
+	style := base
 	var err error
 
 	if strings.TrimSpace(input.BackgroundHex) != "" {
-		style.Background, err = parseHexColor(input.BackgroundHex)
+		style.Background, err = ParseHexColor(input.BackgroundHex)
 		if err != nil {
 			return Style{}, fmt.Errorf("background_color: %w", err)
 		}
 	}
 	if strings.TrimSpace(input.AccentHex) != "" {
-		style.Accent, err = parseHexColor(input.AccentHex)
+		style.Accent, err = ParseHexColor(input.AccentHex)
 		if err != nil {
 			return Style{}, fmt.Errorf("accent_color: %w", err)
 		}
 	}
 	if strings.TrimSpace(input.TextHex) != "" {
-		style.Text, err = parseHexColor(input.TextHex)
+		style.Text, err = ParseHexColor(input.TextHex)
 		if err != nil {
 			return Style{}, fmt.Errorf("text_color: %w", err)
 		}
@@ -166,13 +210,22 @@ func (r *Renderer) resolveStyle(input CardInput) (Style, error) {
 	return style, nil
 }
 
-func drawCenteredLines(dc *gg.Context, text string, x, y float64, lines int) {
+func (r *Renderer) setFont(dc *gg.Context, role string, size float64) {
+	face, err := r.fontManager.Face(role, size)
+	if err == nil && face != nil {
+		dc.SetFontFace(face)
+		return
+	}
+	dc.SetFontFace(basicfont.Face7x13)
+}
+
+func drawCenteredLines(dc *gg.Context, text string, x, y float64, maxChars int) {
 	trimmed := strings.TrimSpace(text)
 	if trimmed == "" {
 		return
 	}
 
-	wrapped := wrapText(trimmed, 34*max(lines, 1))
+	wrapped := wrapText(trimmed, max(maxChars, 20))
 	for index, line := range wrapped {
 		dc.DrawStringAnchored(line, x, y+float64(index*28), 0.5, 0.5)
 	}
@@ -217,24 +270,6 @@ func wrapText(text string, maxChars int) []string {
 	return lines
 }
 
-func parseHexColor(value string) (color.Color, error) {
-	hex := strings.TrimPrefix(strings.TrimSpace(value), "#")
-	if len(hex) != 6 {
-		return nil, fmt.Errorf("must be a 6-digit hex color")
-	}
-
-	var rgb [3]uint8
-	for index := 0; index < 3; index++ {
-		var channel uint8
-		if _, err := fmt.Sscanf(hex[index*2:index*2+2], "%02x", &channel); err != nil {
-			return nil, fmt.Errorf("invalid hex color")
-		}
-		rgb[index] = channel
-	}
-
-	return color.RGBA{R: rgb[0], G: rgb[1], B: rgb[2], A: 255}, nil
-}
-
 func decodeBase64Image(value string) (image.Image, error) {
 	raw := strings.TrimSpace(value)
 	if raw == "" {
@@ -269,4 +304,8 @@ func max(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func scaleRect(rect image.Rectangle, factor int) image.Rectangle {
+	return image.Rect(rect.Min.X*factor, rect.Min.Y*factor, rect.Max.X*factor, rect.Max.Y*factor)
 }

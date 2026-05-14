@@ -6,13 +6,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mohammadkhizerkhan/qr_generation/internal/config"
 	"github.com/mohammadkhizerkhan/qr_generation/internal/render"
 )
 
 func TestBuildArchive(t *testing.T) {
 	t.Parallel()
 
-	svc := NewService(render.NewRenderer())
+	svc := NewService(render.NewRenderer(), config.DefaultConfig().Batch)
 	svc.now = func() time.Time {
 		return time.Date(2026, time.May, 13, 8, 30, 0, 0, time.UTC)
 	}

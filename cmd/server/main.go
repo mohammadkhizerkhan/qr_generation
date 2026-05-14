@@ -6,6 +6,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/mohammadkhizerkhan/qr_generation/internal/config"
 	api "github.com/mohammadkhizerkhan/qr_generation/internal/http"
 	"github.com/mohammadkhizerkhan/qr_generation/qrgen"
 )
@@ -16,14 +17,24 @@ func main() {
 		addr = ":8080"
 	}
 
-	service := qrgen.NewService()
+	configPath := os.Getenv("QRGEN_CONFIG")
+	if configPath == "" {
+		configPath = "config.json"
+	}
+
+	cfg, err := config.LoadOrDefault(configPath)
+	if err != nil {
+		log.Fatalf("failed to load config: %v", err)
+	}
+
+	service := qrgen.NewServiceWithConfig(cfg)
 	server := &http.Server{
 		Addr:              addr,
 		Handler:           api.NewHandler(service),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
-	log.Printf("qr server listening on %s", addr)
+	log.Printf("qr server listening on %s with template %s", addr, cfg.DefaultTemplate)
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)
 	}

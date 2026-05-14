@@ -1,0 +1,77 @@
+{
+  "version": "1.0",
+  "default_template": "standard",
+  "templates": {
+    "standard": {
+      "name": "Standard",
+      "layout": {
+        "width": 900,
+        "height": 1400,
+        "header_y": 120,
+        "upi_id_y": 220,
+        "description_y": 320,
+        "hint_y": 365,
+        "payer_y": 1110,
+        "qr_x": 170,
+        "qr_y": 420,
+        "qr_size": 560,
+        "top_bar_x": 50,
+        "top_bar_y": 55,
+        "top_bar_width": 800,
+        "top_bar_height": 40,
+        "panel_x": 90,
+        "panel_y": 380,
+        "panel_width": 720,
+        "panel_height": 650,
+        "footer_x": 200,
+        "footer_y": 1135,
+        "footer_width": 500,
+        "footer_height": 150,
+        "corner_radius": 30,
+        "top_bar_radius": 18,
+        "footer_radius": 26,
+        "text_wrap_chars": 68
+      },
+      "style": {
+        "background_color": "#FBF8F1",
+        "accent_color": "#9F1A1A",
+        "text_color": "#26221D",
+        "muted_color": "#675E56",
+        "panel_color": "#FFFFFF",
+        "footer_text_color": "#FFFFFF"
+      },
+      "logo": {
+        "placement": "bottom-center",
+        "x": 290,
+        "y": 1195,
+        "width": 320,
+        "height": 110,
+        "padding": 20
+      }
+    }
+  },
+  "typography": {
+    "header_font": "header",
+    "body_font": "body",
+    "footer_font": "footer",
+    "header_size": 30,
+    "body_size": 20,
+    "footer_size": 24,
+    "line_height": 1.2,
+    "font_paths": {
+      "header": "",
+      "body": "",
+      "footer": ""
+    }
+  },
+  "quality": {
+    "qr_recovery_level": "M",
+    "png_compression_level": -1,
+    "render_scale": 1
+  },
+  "batch": {
+    "max_concurrency": 4,
+    "max_batch_size": 500,
+    "stream_response": false
+  }
+}
