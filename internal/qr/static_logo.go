@@ -1,33 +1,30 @@
 package qr
 
 import (
+	"bytes"
+	"fmt"
 	"image"
-	"image/color"
+	_ "image/png"
 	"sync"
+
+	"github.com/mohammadkhizerkhan/qr_generation/assets"
 )
 
 var (
 	defaultLogoOnce sync.Once
 	defaultLogo     image.Image
+	defaultLogoErr  error
 )
 
 func DefaultLogo() (image.Image, error) {
 	defaultLogoOnce.Do(func() {
-		logo := image.NewRGBA(image.Rect(0, 0, 32, 32))
-		fillRect(logo, image.Rect(0, 0, 32, 32), color.RGBA{R: 164, G: 24, B: 24, A: 255})
-		fillRect(logo, image.Rect(4, 4, 28, 28), color.RGBA{R: 255, G: 255, B: 255, A: 255})
-		fillRect(logo, image.Rect(10, 4, 16, 28), color.RGBA{R: 164, G: 24, B: 24, A: 255})
-		fillRect(logo, image.Rect(16, 10, 28, 16), color.RGBA{R: 164, G: 24, B: 24, A: 255})
-		defaultLogo = logo
+		img, _, err := image.Decode(bytes.NewReader(assets.IDFCLogo))
+		if err != nil {
+			defaultLogoErr = fmt.Errorf("decode idfc_logo.png: %w", err)
+			return
+		}
+		defaultLogo = img
 	})
 
-	return defaultLogo, nil
-}
-
-func fillRect(img *image.RGBA, rect image.Rectangle, shade color.RGBA) {
-	for y := rect.Min.Y; y < rect.Max.Y; y++ {
-		for x := rect.Min.X; x < rect.Max.X; x++ {
-			img.SetRGBA(x, y, shade)
-		}
-	}
+	return defaultLogo, defaultLogoErr
 }
