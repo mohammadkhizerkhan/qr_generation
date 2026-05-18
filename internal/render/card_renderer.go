@@ -30,19 +30,22 @@ type CardInput struct {
 	BackgroundHex string
 	AccentHex     string
 	TextHex       string
+	QRGenerator   string
 }
 
 type Renderer struct {
-	qr     *qr.Generator
-	layout Layout
-	style  Style
+	skipQR   *qr.Generator
+	yeqownQR *qr.YeqownGenerator
+	layout   Layout
+	style    Style
 }
 
 func NewRenderer() *Renderer {
 	return &Renderer{
-		qr:     qr.NewGenerator(DefaultLayout().QRSize),
-		layout: DefaultLayout(),
-		style:  DefaultStyle(),
+		skipQR:   qr.NewGenerator(DefaultLayout().QRSize),
+		yeqownQR: qr.NewYeqownGenerator(DefaultLayout().QRSize),
+		layout:   DefaultLayout(),
+		style:    DefaultStyle(),
 	}
 }
 
@@ -83,7 +86,7 @@ func (r *Renderer) RenderPNG(input CardInput) ([]byte, error) {
 		return nil, err
 	}
 
-	qrImage, err := r.qr.Image(validated.Raw)
+	qrImage, err := r.qrImage(validated.Raw, input.QRGenerator)
 	if err != nil {
 		return nil, err
 	}
@@ -138,6 +141,24 @@ func (r *Renderer) RenderPNG(input CardInput) ([]byte, error) {
 	}
 
 	return buf.Bytes(), nil
+}
+
+func (r *Renderer) qrImage(content, backend string) (image.Image, error) {
+	selected := strings.ToLower(strings.TrimSpace(backend))
+	if selected == "" || selected == "skip2" {
+		return r.skipQR.Image(content)
+	}
+
+	if selected != "yeqown" {
+		return nil, fmt.Errorf("unknown qr_generator %q", backend)
+	}
+
+	icon, err := qr.DefaultLogo()
+	if err != nil {
+		return nil, err
+	}
+
+	return r.yeqownQR.ImageWithIcon(content, icon)
 }
 
 func (r *Renderer) resolveStyle(input CardInput) (Style, error) {

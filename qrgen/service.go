@@ -13,6 +13,7 @@ type CardRequest struct {
 	ProviderName    string `json:"provider_name,omitempty"`
 	PayerName       string `json:"payer_name,omitempty"`
 	LogoBase64      string `json:"logo_base64,omitempty"`
+	QRGenerator     string `json:"qr_generator,omitempty"`
 	BackgroundColor string `json:"background_color,omitempty"`
 	AccentColor     string `json:"accent_color,omitempty"`
 	TextColor       string `json:"text_color,omitempty"`
@@ -52,6 +53,7 @@ func toCardInput(req CardRequest) render.CardInput {
 		ProviderName:  req.ProviderName,
 		PayerName:     req.PayerName,
 		LogoBase64:    req.LogoBase64,
+		QRGenerator:   req.QRGenerator,
 		BackgroundHex: req.BackgroundColor,
 		AccentHex:     req.AccentColor,
 		TextHex:       req.TextColor,

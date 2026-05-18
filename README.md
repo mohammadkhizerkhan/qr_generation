@@ -45,6 +45,7 @@ Example request:
 	"description": "Invoice 1234",
 	"provider_name": "IDFC First Bank",
 	"payer_name": "Mohammad Khizer Khan",
+	"qr_generator": "yeqown",
 	"accent_color": "#9f1a1a"
 }
 ```
@@ -113,6 +114,7 @@ pngData, err := svc.RenderPNG(qrgen.CardRequest{
 - `provider_name`: optional footer text when no logo is provided.
 - `payer_name`: optional; used on the card and in batch filenames.
 - `logo_base64`: optional PNG or JPEG logo as raw base64 or data URI.
+- `qr_generator`: optional QR backend selector. Supported values: `skip2` (default) and `yeqown`.
 - `background_color`, `accent_color`, `text_color`: optional hex colors in `#RRGGBB` format.
 
 ## Validation
@@ -121,6 +123,7 @@ pngData, err := svc.RenderPNG(qrgen.CardRequest{
 - URIs must target `upi://pay`.
 - The `pa` parameter is required.
 - Invalid base64 logos or invalid colors return `400` responses from the HTTP layer.
+- `yeqown` uses a built-in static QR center logo from the codebase instead of request-provided QR icon input.
 
 ## Tests
 
