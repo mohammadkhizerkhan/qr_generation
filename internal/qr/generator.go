@@ -2,6 +2,7 @@ package qr
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"image"
 	"image/png"
@@ -13,6 +14,8 @@ type Generator struct {
 	Size  int
 	Level qrcode.RecoveryLevel
 }
+
+var ErrIconNotSupported = errors.New("qr icon embedding is not supported by skip2/go-qrcode")
 
 func NewGenerator(size int) *Generator {
 	if size <= 0 {
@@ -32,6 +35,10 @@ func (g *Generator) Image(content string) (image.Image, error) {
 	}
 
 	return code.Image(g.Size), nil
+}
+
+func (g *Generator) ImageWithIcon(content string, _ image.Image) (image.Image, error) {
+	return nil, ErrIconNotSupported
 }
 
 func (g *Generator) PNG(content string) ([]byte, error) {

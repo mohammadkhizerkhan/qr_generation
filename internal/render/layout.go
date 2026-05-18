@@ -3,19 +3,19 @@ package render
 import "image/color"
 
 type Layout struct {
-	Width       int
-	Height      int
-	HeaderY     float64
-	UPIIDY      float64
+	Width        int
+	Height       int
+	HeaderY      float64
+	UPIIDY       float64
 	DescriptionY float64
-	QRX         int
-	QRY         int
-	QRSize      int
-	FooterY     int
-	LogoX       int
-	LogoY       int
-	LogoWidth   int
-	LogoHeight  int
+	QRX          int
+	QRY          int
+	QRSize       int
+	FooterY      int
+	LogoX        int
+	LogoY        int
+	LogoWidth    int
+	LogoHeight   int
 }
 
 type Style struct {
