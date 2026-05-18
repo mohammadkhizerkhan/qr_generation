@@ -36,6 +36,7 @@ type CardInput struct {
 type Renderer struct {
 	skipQR   *qr.Generator
 	yeqownQR *qr.YeqownGenerator
+	pigligQR *qr.PigligGenerator
 	layout   Layout
 	style    Style
 }
@@ -44,6 +45,7 @@ func NewRenderer() *Renderer {
 	return &Renderer{
 		skipQR:   qr.NewGenerator(DefaultLayout().QRSize),
 		yeqownQR: qr.NewYeqownGenerator(DefaultLayout().QRSize),
+		pigligQR: qr.NewPigligGenerator(DefaultLayout().QRSize),
 		layout:   DefaultLayout(),
 		style:    DefaultStyle(),
 	}
@@ -149,13 +151,17 @@ func (r *Renderer) qrImage(content, backend string) (image.Image, error) {
 		return r.skipQR.Image(content)
 	}
 
-	if selected != "yeqown" {
+	if selected != "yeqown" && selected != "piglig" {
 		return nil, fmt.Errorf("unknown qr_generator %q", backend)
 	}
 
 	icon, err := qr.DefaultLogo()
 	if err != nil {
 		return nil, err
+	}
+
+	if selected == "piglig" {
+		return r.pigligQR.ImageWithIcon(content, icon)
 	}
 
 	return r.yeqownQR.ImageWithIcon(content, icon)
