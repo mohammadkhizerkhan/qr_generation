@@ -79,6 +79,7 @@ func (h *Handler) renderMetrics(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) batch(w http.ResponseWriter, r *http.Request) {
+	requestStart := time.Now()
 	var req BatchGenerateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body")
@@ -89,13 +90,14 @@ func (h *Handler) batch(w http.ResponseWriter, r *http.Request) {
 	for _, item := range req.Items {
 		items = append(items, qrgen.CardRequest(item))
 	}
-
-	archiveData, err := h.service.RenderArchive(items)
+	log.Printf("http_batch received items=%d concurrency=%d", len(req.Items), req.Concurrency)
+	archiveData, err := h.service.RenderArchive(items, req.Concurrency)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
+	log.Printf("http_batch items=%d concurrency=%d total_ms=%.2f", len(req.Items), req.Concurrency, float64(time.Since(requestStart).Microseconds())/1000)
 	w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Content-Disposition", "attachment; filename=upi-batch-"+time.Now().UTC().Format("20060102-150405")+".zip")
 	_, _ = w.Write(archiveData)

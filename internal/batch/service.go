@@ -25,27 +25,42 @@ func NewService(renderer *render.Renderer) *Service {
 	}
 }
 
-func (s *Service) BuildArchive(items []render.CardInput) ([]byte, error) {
+type renderResult struct {
+	pngData  []byte
+	filename string
+	err      error
+}
+
+// BuildArchive renders all items concurrently then assembles the ZIP serially.
+// concurrency controls the worker pool size; 0 defaults to runtime.NumCPU().
+func (s *Service) BuildArchive(items []render.CardInput, concurrency int) ([]byte, error) {
 	if len(items) == 0 {
 		return nil, fmt.Errorf("at least one batch item is required")
 	}
 
+	timestamp := s.now().UTC().Format("20060102-150405")
+	results := make([]renderResult, len(items))
+
+	runWorkers(len(items), concurrency, func(i int) {
+		pngData, err := s.renderer.RenderPNG(items[i])
+		results[i] = renderResult{
+			pngData:  pngData,
+			filename: buildFileName(items[i], timestamp, i+1),
+			err:      err,
+		}
+	})
+
 	var buf bytes.Buffer
 	archive := zip.NewWriter(&buf)
-	timestamp := s.now().UTC().Format("20060102-150405")
-
-	for index, item := range items {
-		pngData, err := s.renderer.RenderPNG(item)
-		if err != nil {
-			return nil, fmt.Errorf("render item %d: %w", index, err)
+	for i, result := range results {
+		if result.err != nil {
+			return nil, fmt.Errorf("render item %d: %w", i, result.err)
 		}
-
-		filename := buildFileName(item, timestamp, index+1)
-		fileWriter, err := archive.Create(filename)
+		fileWriter, err := archive.Create(result.filename)
 		if err != nil {
 			return nil, fmt.Errorf("create zip entry: %w", err)
 		}
-		if _, err := fileWriter.Write(pngData); err != nil {
+		if _, err := fileWriter.Write(result.pngData); err != nil {
 			return nil, fmt.Errorf("write zip entry: %w", err)
 		}
 	}

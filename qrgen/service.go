@@ -41,12 +41,14 @@ func (s *Service) RenderPNGWithMetrics(req CardRequest) ([]byte, *render.Generat
 	return s.renderer.RenderPNGWithMetrics(toCardInput(req))
 }
 
-func (s *Service) RenderArchive(items []CardRequest) ([]byte, error) {
+// RenderArchive renders all items concurrently and returns a ZIP archive.
+// concurrency controls the worker pool size; 0 defaults to runtime.NumCPU().
+func (s *Service) RenderArchive(items []CardRequest, concurrency int) ([]byte, error) {
 	converted := make([]render.CardInput, 0, len(items))
 	for _, item := range items {
 		converted = append(converted, toCardInput(item))
 	}
-	return s.batch.BuildArchive(converted)
+	return s.batch.BuildArchive(converted, concurrency)
 }
 
 func toCardInput(req CardRequest) render.CardInput {

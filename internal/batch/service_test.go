@@ -21,7 +21,7 @@ func TestBuildArchive(t *testing.T) {
 		UPIURI:       "upi://pay?pa=merchant%40bank&pn=Simba%20Pvt%20Ltd",
 		MerchantName: "Simba Pvt Ltd",
 		PayerName:    "Khizer Khan",
-	}})
+	}}, 1)
 	if err != nil {
 		t.Fatalf("BuildArchive() error = %v", err)
 	}

@@ -15,7 +15,9 @@ type GenerateRequest struct {
 }
 
 type BatchGenerateRequest struct {
-	Items []GenerateRequest `json:"items"`
+	Items       []GenerateRequest `json:"items"`
+	// Concurrency controls the worker pool size for parallel rendering; 0 uses runtime.NumCPU().
+	Concurrency int               `json:"concurrency,omitempty"`
 }
 
 type errorResponse struct {
