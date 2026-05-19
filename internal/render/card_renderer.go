@@ -8,7 +8,9 @@ import (
 	"image/color"
 	_ "image/jpeg"
 	"image/png"
+	"log"
 	"math"
+	"os"
 	"strings"
 	"time"
 
@@ -16,6 +18,7 @@ import (
 	"golang.org/x/image/draw"
 	"golang.org/x/image/font/basicfont"
 
+	"github.com/mohammadkhizerkhan/qr_generation/assets"
 	"github.com/mohammadkhizerkhan/qr_generation/internal/qr"
 	"github.com/mohammadkhizerkhan/qr_generation/internal/upi"
 )
@@ -36,27 +39,57 @@ type CardInput struct {
 
 // GenerationMetrics holds timing data for QR code generation
 type GenerationMetrics struct {
-	QRGenerationDurationMs float64            // Time taken to generate QR code
-	TotalRenderDurationMs  float64            // Total time to render entire PNG
-	QRGeneratorUsed        string             // Which QR generator was used (skip2, yeqown, piglig)
-	GeneratorTimingsMs     map[string]float64 // Individual timings for each generator (for comparison)
+	QRGenerationDurationMs   float64            // Time taken to generate QR code
+	TemplateRenderDurationMs float64            // Time taken to compose the template image
+	ValidationDurationMs     float64            // Time taken for input and UPI validation
+	DrawDurationMs           float64            // Time taken to draw template layers
+	EncodeDurationMs         float64            // Time taken to PNG-encode output
+	TotalRenderDurationMs    float64            // Total time to render entire PNG
+	QRGeneratorUsed          string             // Which QR generator was used (skip2, yeqown, piglig)
+	RenderMode               string             // prepared or legacy
+	GeneratorTimingsMs       map[string]float64 // Individual timings for each generator (for comparison)
+}
+
+type PreparedTemplate struct {
+	base        *image.RGBA
+	brand       *image.RGBA
+	layout      Layout
+	style       Style
+	description string
 }
 
 type Renderer struct {
 	skipQR   *qr.Generator
 	yeqownQR *qr.YeqownGenerator
 	pigligQR *qr.PigligGenerator
+	prepared *PreparedTemplate
 	layout   Layout
 	style    Style
+	logPerf  bool
 }
 
 func NewRenderer() *Renderer {
+	layout := DefaultLayout()
+	style := DefaultStyle()
+	prepareStart := time.Now()
+	prepared, err := prepareTemplate(layout, style)
+	if err != nil {
+		panic(err)
+	}
+	prepareDuration := time.Since(prepareStart)
+	logPerf := os.Getenv("QRGEN_PROFILE") == "1"
+	if logPerf {
+		log.Printf("qr_renderer startup prepared_template=true width=%d height=%d brand=%t prepare_ms=%.2f", layout.Width, layout.Height, prepared.brand != nil, float64(prepareDuration.Microseconds())/1000)
+	}
+
 	return &Renderer{
-		skipQR:   qr.NewGenerator(DefaultLayout().QRSize),
-		yeqownQR: qr.NewYeqownGenerator(DefaultLayout().QRSize),
-		pigligQR: qr.NewPigligGenerator(DefaultLayout().QRSize),
-		layout:   DefaultLayout(),
-		style:    DefaultStyle(),
+		skipQR:   qr.NewGenerator(layout.QRSize),
+		yeqownQR: qr.NewYeqownGenerator(layout.QRSize),
+		pigligQR: qr.NewPigligGenerator(layout.QRSize),
+		prepared: prepared,
+		layout:   layout,
+		style:    style,
+		logPerf:  logPerf,
 	}
 }
 
@@ -68,6 +101,7 @@ func (r *Renderer) RenderPNG(input CardInput) ([]byte, error) {
 // RenderPNGWithMetrics is like RenderPNG but also returns timing metrics for QR generation
 func (r *Renderer) RenderPNGWithMetrics(input CardInput) ([]byte, *GenerationMetrics, error) {
 	begin := time.Now()
+	validationStart := time.Now()
 	metrics := &GenerationMetrics{
 		GeneratorTimingsMs: make(map[string]float64),
 	}
@@ -95,18 +129,9 @@ func (r *Renderer) RenderPNGWithMetrics(input CardInput) ([]byte, *GenerationMet
 		description = validated.Params.Get("tn")
 	}
 	if description == "" {
-		description = "Scan this QR code with any UPI app to transfer funds."
+		description = "Scan this QR code with any UPI app to transfer"
 	}
-
-	providerName := strings.TrimSpace(input.ProviderName)
-	if providerName == "" {
-		providerName = "Powered by QR Generation"
-	}
-
-	style, err := r.resolveStyle(input)
-	if err != nil {
-		return nil, nil, err
-	}
+	metrics.ValidationDurationMs = float64(time.Since(validationStart).Microseconds()) / 1000
 
 	qrImage, qrMetrics, err := r.qrImageWithMetrics(validated.Raw, input.QRGenerator)
 	if err != nil {
@@ -116,57 +141,141 @@ func (r *Renderer) RenderPNGWithMetrics(input CardInput) ([]byte, *GenerationMet
 	metrics.QRGeneratorUsed = qrMetrics.QRGeneratorUsed
 	metrics.GeneratorTimingsMs = qrMetrics.GeneratorTimingsMs
 
+	if r.canUsePreparedTemplate(input, description) {
+		pngData, drawDuration, encodeDuration, templateDuration, err := r.renderPreparedPNG(merchantName, merchantUPIID, qrImage)
+		if err != nil {
+			return nil, nil, err
+		}
+		metrics.DrawDurationMs = drawDuration
+		metrics.EncodeDurationMs = encodeDuration
+		metrics.TemplateRenderDurationMs = templateDuration
+		metrics.RenderMode = "prepared"
+		metrics.TotalRenderDurationMs = float64(time.Since(begin).Microseconds()) / 1000
+		r.logMetrics(metrics)
+		return pngData, metrics, nil
+	}
+	metrics.RenderMode = "legacy"
+
+	style, err := r.resolveStyle(input)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	drawStart := time.Now()
 	dc := gg.NewContext(r.layout.Width, r.layout.Height)
 	dc.SetColor(style.Background)
 	dc.Clear()
-
-	dc.SetColor(style.Accent)
-	dc.DrawRoundedRectangle(50, 55, float64(r.layout.Width-100), 40, 18)
-	dc.Fill()
-
-	dc.SetColor(style.Panel)
-	dc.DrawRoundedRectangle(90, 380, float64(r.layout.Width-180), float64(r.layout.QRSize+90), 30)
-	dc.Fill()
 
 	dc.SetColor(style.Text)
 	dc.SetFontFace(basicfont.Face7x13)
 	drawCenteredLines(dc, strings.ToUpper(merchantName), float64(r.layout.Width)/2, r.layout.HeaderY, 3)
 
 	dc.SetColor(style.Muted)
-	drawCenteredLines(dc, "UPI ID: "+merchantUPIID, float64(r.layout.Width)/2, r.layout.UPIIDY, 2)
+	dc.SetFontFace(basicfont.Face7x13)
+	drawCenteredLines(dc, "My UPI ID: "+merchantUPIID, float64(r.layout.Width)/2, r.layout.UPIIDY, 2)
+
+	dc.SetColor(style.Muted)
+	dc.SetLineWidth(1.2)
+	dc.DrawLine(260, r.layout.DividerY, float64(r.layout.Width-260), r.layout.DividerY)
+	dc.Stroke()
+
+	dc.SetFontFace(basicfont.Face7x13)
 	drawCenteredLines(dc, description, float64(r.layout.Width)/2, r.layout.DescriptionY, 2)
-	drawCenteredLines(dc, "Scan with any supported UPI app", float64(r.layout.Width)/2, 365, 2)
 
 	dc.DrawImage(qrImage, r.layout.QRX, r.layout.QRY)
 
-	dc.SetColor(style.Accent)
-	dc.DrawRoundedRectangle(200, float64(r.layout.FooterY-25), 500, 150, 26)
-	dc.Fill()
-
-	logoImage, err := decodeBase64Image(input.LogoBase64)
-	if err != nil {
-		return nil, nil, err
+	if r.prepared != nil && r.prepared.brand != nil {
+		dc.DrawImage(r.prepared.brand, r.layout.BrandX, r.layout.BrandY)
 	}
-	if logoImage != nil {
-		resized := resizeImage(logoImage, r.layout.LogoWidth, r.layout.LogoHeight)
-		dc.DrawImage(resized, r.layout.LogoX, r.layout.LogoY)
-	} else {
-		dc.SetColor(color.White)
-		drawCenteredLines(dc, providerName, float64(r.layout.Width)/2, float64(r.layout.FooterY+40), 2)
-	}
-
-	if strings.TrimSpace(input.PayerName) != "" {
-		dc.SetColor(style.Muted)
-		drawCenteredLines(dc, "Payer: "+strings.TrimSpace(input.PayerName), float64(r.layout.Width)/2, 1110, 2)
-	}
+	metrics.DrawDurationMs = float64(time.Since(drawStart).Microseconds()) / 1000
 
 	var buf bytes.Buffer
+	encodeStart := time.Now()
 	if err := png.Encode(&buf, dc.Image()); err != nil {
 		return nil, nil, fmt.Errorf("encode card png: %w", err)
 	}
+	metrics.EncodeDurationMs = float64(time.Since(encodeStart).Microseconds()) / 1000
 
-	metrics.TotalRenderDurationMs = time.Since(begin).Seconds() * 1000
+	metrics.TemplateRenderDurationMs = metrics.DrawDurationMs + metrics.EncodeDurationMs
+	metrics.TotalRenderDurationMs = float64(time.Since(begin).Microseconds()) / 1000
+	r.logMetrics(metrics)
 	return buf.Bytes(), metrics, nil
+}
+
+func (r *Renderer) canUsePreparedTemplate(input CardInput, description string) bool {
+	return strings.TrimSpace(input.Description) == "" &&
+		description == r.prepared.description &&
+		strings.TrimSpace(input.ProviderName) == "" &&
+		strings.TrimSpace(input.PayerName) == "" &&
+		strings.TrimSpace(input.LogoBase64) == "" &&
+		strings.TrimSpace(input.BackgroundHex) == "" &&
+		strings.TrimSpace(input.AccentHex) == "" &&
+		strings.TrimSpace(input.TextHex) == ""
+}
+
+func (r *Renderer) renderPreparedPNG(merchantName, merchantUPIID string, qrImage image.Image) ([]byte, float64, float64, float64, error) {
+	begin := time.Now()
+	base := cloneRGBA(r.prepared.base)
+	dc := gg.NewContextForRGBA(base)
+	drawStart := time.Now()
+
+	dc.SetColor(r.prepared.style.Text)
+	dc.SetFontFace(basicfont.Face7x13)
+	drawCenteredLines(dc, strings.ToUpper(merchantName), float64(r.prepared.layout.Width)/2, r.prepared.layout.HeaderY, 3)
+
+	dc.SetColor(r.prepared.style.Muted)
+	dc.SetFontFace(basicfont.Face7x13)
+	drawCenteredLines(dc, "My UPI ID: "+merchantUPIID, float64(r.prepared.layout.Width)/2, r.prepared.layout.UPIIDY, 2)
+
+	dc.DrawImage(qrImage, r.prepared.layout.QRX, r.prepared.layout.QRY)
+	drawDuration := float64(time.Since(drawStart).Microseconds()) / 1000
+
+	var buf bytes.Buffer
+	encodeStart := time.Now()
+	if err := png.Encode(&buf, dc.Image()); err != nil {
+		return nil, 0, 0, 0, fmt.Errorf("encode prepared png: %w", err)
+	}
+	encodeDuration := float64(time.Since(encodeStart).Microseconds()) / 1000
+
+	return buf.Bytes(), drawDuration, encodeDuration, float64(time.Since(begin).Microseconds()) / 1000, nil
+}
+
+func prepareTemplate(layout Layout, style Style) (*PreparedTemplate, error) {
+	base := image.NewRGBA(image.Rect(0, 0, layout.Width, layout.Height))
+	dc := gg.NewContextForRGBA(base)
+	dc.SetColor(style.Background)
+	dc.Clear()
+
+	dc.SetColor(style.Muted)
+	dc.SetLineWidth(1)
+	dc.DrawLine(260, layout.DividerY, float64(layout.Width-260), layout.DividerY)
+	dc.Stroke()
+
+	dc.SetColor(style.Muted)
+	dc.SetFontFace(basicfont.Face7x13)
+	drawCenteredLines(dc, "Scan this QR code with any UPI app to transfer", float64(layout.Width)/2, layout.DescriptionY, 2)
+
+	brandImage, err := decodeAssetImage(assets.IDFCBrand)
+	if err != nil {
+		return nil, err
+	}
+	resizedBrand := resizeImage(brandImage, layout.BrandWidth, layout.BrandHeight)
+	dc.DrawImage(resizedBrand, layout.BrandX, layout.BrandY)
+
+	return &PreparedTemplate{
+		base:        base,
+		brand:       resizedBrand,
+		layout:      layout,
+		style:       style,
+		description: "Scan this QR code with any UPI app to transfer",
+	}, nil
+}
+
+func (r *Renderer) logMetrics(metrics *GenerationMetrics) {
+	if !r.logPerf {
+		return
+	}
+	log.Printf("qr_renderer mode=%s total_ms=%.2f validate_ms=%.2f qr_ms=%.2f draw_ms=%.2f encode_ms=%.2f template_ms=%.2f generator=%s", metrics.RenderMode, metrics.TotalRenderDurationMs, metrics.ValidationDurationMs, metrics.QRGenerationDurationMs, metrics.DrawDurationMs, metrics.EncodeDurationMs, metrics.TemplateRenderDurationMs, metrics.QRGeneratorUsed)
 }
 
 func (r *Renderer) qrImage(content, backend string) (image.Image, error) {
@@ -361,7 +470,26 @@ func decodeBase64Image(value string) (image.Image, error) {
 	return img, nil
 }
 
-func resizeImage(src image.Image, width, height int) image.Image {
+func decodeAssetImage(data []byte) (image.Image, error) {
+	if len(data) == 0 {
+		return nil, fmt.Errorf("asset image is empty")
+	}
+
+	img, _, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return nil, fmt.Errorf("decode asset image: %w", err)
+	}
+
+	return img, nil
+}
+
+func cloneRGBA(src *image.RGBA) *image.RGBA {
+	dst := image.NewRGBA(src.Bounds())
+	draw.Draw(dst, dst.Bounds(), src, src.Bounds().Min, draw.Src)
+	return dst
+}
+
+func resizeImage(src image.Image, width, height int) *image.RGBA {
 	dst := image.NewRGBA(image.Rect(0, 0, width, height))
 	draw.CatmullRom.Scale(dst, dst.Bounds(), src, src.Bounds(), draw.Over, nil)
 	return dst
