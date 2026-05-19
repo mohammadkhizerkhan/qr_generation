@@ -10,7 +10,6 @@ type CardRequest struct {
 	MerchantName    string `json:"merchant_name"`
 	MerchantUPIID   string `json:"merchant_upi_id,omitempty"`
 	Description     string `json:"description,omitempty"`
-	ProviderName    string `json:"provider_name,omitempty"`
 	PayerName       string `json:"payer_name,omitempty"`
 	LogoBase64      string `json:"logo_base64,omitempty"`
 	QRGenerator     string `json:"qr_generator,omitempty"`
@@ -46,7 +45,7 @@ func (s *Service) RenderPNGWithMetrics(req CardRequest) ([]byte, *render.Generat
 func (s *Service) RenderArchive(items []CardRequest, concurrency int) ([]byte, error) {
 	converted := make([]render.CardInput, 0, len(items))
 	for _, item := range items {
-		converted = append(converted, toCardInput(item))
+		converted = append(converted, toCardInput(item))	
 	}
 	return s.batch.BuildArchive(converted, concurrency)
 }
@@ -57,7 +56,6 @@ func toCardInput(req CardRequest) render.CardInput {
 		MerchantName:  req.MerchantName,
 		MerchantUPIID: req.MerchantUPIID,
 		Description:   req.Description,
-		ProviderName:  req.ProviderName,
 		PayerName:     req.PayerName,
 		LogoBase64:    req.LogoBase64,
 		QRGenerator:   req.QRGenerator,

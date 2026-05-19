@@ -36,7 +36,7 @@ func (h *Handler) render(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pngData, metrics, err := h.service.RenderPNGWithMetrics(qrgen.CardRequest(req))
+	pngData, metrics, err := h.service.RenderPNGWithMetrics(toCardRequest(req))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -59,7 +59,7 @@ func (h *Handler) renderMetrics(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pngData, metrics, err := h.service.RenderPNGWithMetrics(qrgen.CardRequest(req))
+	pngData, metrics, err := h.service.RenderPNGWithMetrics(toCardRequest(req))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -88,9 +88,8 @@ func (h *Handler) batch(w http.ResponseWriter, r *http.Request) {
 
 	items := make([]qrgen.CardRequest, 0, len(req.Items))
 	for _, item := range req.Items {
-		items = append(items, qrgen.CardRequest(item))
+		items = append(items, toCardRequest(item))
 	}
-	log.Printf("http_batch received items=%d concurrency=%d", len(req.Items), req.Concurrency)
 	archiveData, err := h.service.RenderArchive(items, req.Concurrency)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -111,4 +110,19 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 
 func writeError(w http.ResponseWriter, status int, message string) {
 	writeJSON(w, status, errorResponse{Error: message})
+}
+
+func toCardRequest(req GenerateRequest) qrgen.CardRequest {
+	return qrgen.CardRequest{
+		UPIURI:          req.UPIURI,
+		MerchantName:    req.MerchantName,
+		MerchantUPIID:   req.MerchantUPIID,
+		Description:     req.Description,
+		PayerName:       req.PayerName,
+		LogoBase64:      req.LogoBase64,
+		QRGenerator:     req.QRGenerator,
+		BackgroundColor: req.BackgroundColor,
+		AccentColor:     req.AccentColor,
+		TextColor:       req.TextColor,
+	}
 }

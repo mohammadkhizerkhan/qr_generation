@@ -28,7 +28,6 @@ type CardInput struct {
 	MerchantName  string
 	MerchantUPIID string
 	Description   string
-	ProviderName  string
 	PayerName     string
 	LogoBase64    string
 	BackgroundHex string
@@ -79,7 +78,7 @@ func NewRenderer() *Renderer {
 	prepareDuration := time.Since(prepareStart)
 	logPerf := os.Getenv("QRGEN_PROFILE") == "1"
 	if logPerf {
-		log.Printf("qr_renderer startup prepared_template=true width=%d height=%d brand=%t prepare_ms=%.2f", layout.Width, layout.Height, prepared.brand != nil, float64(prepareDuration.Microseconds())/1000)
+		log.Printf("qr_renderer startup prepared_template=true width=%d height=%d brand=%t prepare_ms=%.2f", layout.Width, layout.Height, prepared != nil, float64(prepareDuration.Microseconds())/1000)
 	}
 
 	return &Renderer{
@@ -134,6 +133,7 @@ func (r *Renderer) RenderPNGWithMetrics(input CardInput) ([]byte, *GenerationMet
 	metrics.ValidationDurationMs = float64(time.Since(validationStart).Microseconds()) / 1000
 
 	qrImage, qrMetrics, err := r.qrImageWithMetrics(validated.Raw, input.QRGenerator)
+	// qrImage, err := r.skipQR.Image(validated.Raw)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -141,7 +141,8 @@ func (r *Renderer) RenderPNGWithMetrics(input CardInput) ([]byte, *GenerationMet
 	metrics.QRGeneratorUsed = qrMetrics.QRGeneratorUsed
 	metrics.GeneratorTimingsMs = qrMetrics.GeneratorTimingsMs
 
-	if r.canUsePreparedTemplate(input, description) {
+	if r.canUsePreparedTemplate() {
+		log.Printf("using existing template")
 		pngData, drawDuration, encodeDuration, templateDuration, err := r.renderPreparedPNG(merchantName, merchantUPIID, qrImage)
 		if err != nil {
 			return nil, nil, err
@@ -154,6 +155,7 @@ func (r *Renderer) RenderPNGWithMetrics(input CardInput) ([]byte, *GenerationMet
 		r.logMetrics(metrics)
 		return pngData, metrics, nil
 	}
+	log.Printf("using new template")
 	metrics.RenderMode = "legacy"
 
 	style, err := r.resolveStyle(input)
@@ -202,15 +204,9 @@ func (r *Renderer) RenderPNGWithMetrics(input CardInput) ([]byte, *GenerationMet
 	return buf.Bytes(), metrics, nil
 }
 
-func (r *Renderer) canUsePreparedTemplate(input CardInput, description string) bool {
-	return strings.TrimSpace(input.Description) == "" &&
-		description == r.prepared.description &&
-		strings.TrimSpace(input.ProviderName) == "" &&
-		strings.TrimSpace(input.PayerName) == "" &&
-		strings.TrimSpace(input.LogoBase64) == "" &&
-		strings.TrimSpace(input.BackgroundHex) == "" &&
-		strings.TrimSpace(input.AccentHex) == "" &&
-		strings.TrimSpace(input.TextHex) == ""
+func (r *Renderer) canUsePreparedTemplate() bool {
+	log.Printf("checking if prepared template can be used: %v", r.prepared != nil)
+	return r.prepared != nil
 }
 
 func (r *Renderer) renderPreparedPNG(merchantName, merchantUPIID string, qrImage image.Image) ([]byte, float64, float64, float64, error) {
