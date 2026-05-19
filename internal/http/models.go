@@ -21,3 +21,12 @@ type BatchGenerateRequest struct {
 type errorResponse struct {
 	Error string `json:"error"`
 }
+
+// MetricsResponse contains timing data and the PNG image for performance analysis
+type MetricsResponse struct {
+	ImageBase64            string                 `json:"image_base64"` // PNG as base64
+	QRGenerationDurationMs float64                `json:"qr_generation_duration_ms"`
+	TotalRenderDurationMs  float64                `json:"total_render_duration_ms"`
+	QRGeneratorUsed        string                 `json:"qr_generator_used"`
+	GeneratorTimingsMs     map[string]float64     `json:"generator_timings_ms"` // Timing breakdown for all generators
+}

@@ -10,6 +10,7 @@ import (
 	"image/png"
 	"math"
 	"strings"
+	"time"
 
 	"github.com/fogleman/gg"
 	"golang.org/x/image/draw"
@@ -33,6 +34,14 @@ type CardInput struct {
 	QRGenerator   string
 }
 
+// GenerationMetrics holds timing data for QR code generation
+type GenerationMetrics struct {
+	QRGenerationDurationMs float64            // Time taken to generate QR code
+	TotalRenderDurationMs  float64            // Total time to render entire PNG
+	QRGeneratorUsed        string             // Which QR generator was used (skip2, yeqown, piglig)
+	GeneratorTimingsMs     map[string]float64 // Individual timings for each generator (for comparison)
+}
+
 type Renderer struct {
 	skipQR   *qr.Generator
 	yeqownQR *qr.YeqownGenerator
@@ -52,9 +61,20 @@ func NewRenderer() *Renderer {
 }
 
 func (r *Renderer) RenderPNG(input CardInput) ([]byte, error) {
+	png, _, err := r.RenderPNGWithMetrics(input)
+	return png, err
+}
+
+// RenderPNGWithMetrics is like RenderPNG but also returns timing metrics for QR generation
+func (r *Renderer) RenderPNGWithMetrics(input CardInput) ([]byte, *GenerationMetrics, error) {
+	begin := time.Now()
+	metrics := &GenerationMetrics{
+		GeneratorTimingsMs: make(map[string]float64),
+	}
+
 	validated, err := upi.Validate(input.UPIURI)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	merchantName := strings.TrimSpace(input.MerchantName)
@@ -62,7 +82,7 @@ func (r *Renderer) RenderPNG(input CardInput) ([]byte, error) {
 		merchantName = validated.Params.Get("pn")
 	}
 	if merchantName == "" {
-		return nil, fmt.Errorf("merchant_name is required")
+		return nil, nil, fmt.Errorf("merchant_name is required")
 	}
 
 	merchantUPIID := strings.TrimSpace(input.MerchantUPIID)
@@ -85,13 +105,16 @@ func (r *Renderer) RenderPNG(input CardInput) ([]byte, error) {
 
 	style, err := r.resolveStyle(input)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	qrImage, err := r.qrImage(validated.Raw, input.QRGenerator)
+	qrImage, qrMetrics, err := r.qrImageWithMetrics(validated.Raw, input.QRGenerator)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
+	metrics.QRGenerationDurationMs = qrMetrics.QRGenerationDurationMs
+	metrics.QRGeneratorUsed = qrMetrics.QRGeneratorUsed
+	metrics.GeneratorTimingsMs = qrMetrics.GeneratorTimingsMs
 
 	dc := gg.NewContext(r.layout.Width, r.layout.Height)
 	dc.SetColor(style.Background)
@@ -122,7 +145,7 @@ func (r *Renderer) RenderPNG(input CardInput) ([]byte, error) {
 
 	logoImage, err := decodeBase64Image(input.LogoBase64)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if logoImage != nil {
 		resized := resizeImage(logoImage, r.layout.LogoWidth, r.layout.LogoHeight)
@@ -139,32 +162,85 @@ func (r *Renderer) RenderPNG(input CardInput) ([]byte, error) {
 
 	var buf bytes.Buffer
 	if err := png.Encode(&buf, dc.Image()); err != nil {
-		return nil, fmt.Errorf("encode card png: %w", err)
+		return nil, nil, fmt.Errorf("encode card png: %w", err)
 	}
 
-	return buf.Bytes(), nil
+	metrics.TotalRenderDurationMs = time.Since(begin).Seconds() * 1000
+	return buf.Bytes(), metrics, nil
 }
 
 func (r *Renderer) qrImage(content, backend string) (image.Image, error) {
+	img, _, err := r.qrImageWithMetrics(content, backend)
+	return img, err
+}
+
+// qrImageWithMetrics generates QR code and returns timing metrics for all generators
+func (r *Renderer) qrImageWithMetrics(content, backend string) (image.Image, *GenerationMetrics, error) {
 	selected := strings.ToLower(strings.TrimSpace(backend))
+	metrics := &GenerationMetrics{
+		GeneratorTimingsMs: make(map[string]float64),
+	}
+
+	// Benchmark all generators for comparison
+	generators := map[string]func() (image.Image, error){
+		"skip2": func() (image.Image, error) {
+			startTime := time.Now()
+			defer func() {
+				metrics.GeneratorTimingsMs["skip2"] = time.Since(startTime).Seconds() * 1000
+			}()
+			return r.skipQR.Image(content)
+		},
+		"yeqown": func() (image.Image, error) {
+			startTime := time.Now()
+			defer func() {
+				metrics.GeneratorTimingsMs["yeqown"] = time.Since(startTime).Seconds() * 1000
+			}()
+			_, err := qr.DefaultLogo()
+			if err != nil {
+				return nil, err
+			}
+			return r.yeqownQR.Image(content)
+		},
+		"piglig": func() (image.Image, error) {
+			startTime := time.Now()
+			defer func() {
+				metrics.GeneratorTimingsMs["piglig"] = time.Since(startTime).Seconds() * 1000
+			}()
+			_, err := qr.DefaultLogo()
+			if err != nil {
+				return nil, err
+			}
+			return r.pigligQR.Image(content)
+		},
+	}
+
+	// If no backend selected, use skip2 as default
 	if selected == "" || selected == "skip2" {
-		return r.skipQR.Image(content)
+		selected = "skip2"
 	}
 
-	if selected != "yeqown" && selected != "piglig" {
-		return nil, fmt.Errorf("unknown qr_generator %q", backend)
+	// Validate selected generator
+	if selected != "skip2" && selected != "yeqown" && selected != "piglig" {
+		return nil, nil, fmt.Errorf("unknown qr_generator %q", backend)
 	}
 
-	icon, err := qr.DefaultLogo()
+	// Generate with selected backend
+	generatorFunc, ok := generators[selected]
+	if !ok {
+		return nil, nil, fmt.Errorf("generator %q not available", selected)
+	}
+
+	img, err := generatorFunc()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	if selected == "piglig" {
-		return r.pigligQR.ImageWithIcon(content, icon)
+	metrics.QRGeneratorUsed = selected
+	if timing, exists := metrics.GeneratorTimingsMs[selected]; exists {
+		metrics.QRGenerationDurationMs = timing
 	}
 
-	return r.yeqownQR.ImageWithIcon(content, icon)
+	return img, metrics, nil
 }
 
 func (r *Renderer) resolveStyle(input CardInput) (Style, error) {

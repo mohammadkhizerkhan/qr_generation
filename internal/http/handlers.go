@@ -17,6 +17,7 @@ func NewHandler(service *qrgen.Service) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", h.healthz)
 	mux.HandleFunc("POST /v1/render", h.render)
+	mux.HandleFunc("POST /v1/render-metrics", h.renderMetrics)
 	mux.HandleFunc("POST /v1/batch", h.batch)
 	return mux
 }
@@ -41,6 +42,31 @@ func (h *Handler) render(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "image/png")
 	w.Header().Set("Content-Disposition", "inline; filename=upi-qr.png")
 	_, _ = w.Write(pngData)
+}
+
+// renderMetrics endpoint returns PNG + timing metrics in JSON for performance analysis
+func (h *Handler) renderMetrics(w http.ResponseWriter, r *http.Request) {
+	var req GenerateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	_, metrics, err := h.service.RenderPNGWithMetrics(qrgen.CardRequest(req))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	resp := MetricsResponse{
+		// ImageBase64:            base64.StdEncoding.EncodeToString(pngData),
+		QRGenerationDurationMs: metrics.QRGenerationDurationMs,
+		TotalRenderDurationMs:  metrics.TotalRenderDurationMs,
+		QRGeneratorUsed:        metrics.QRGeneratorUsed,
+		GeneratorTimingsMs:     metrics.GeneratorTimingsMs,
+	}
+
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (h *Handler) batch(w http.ResponseWriter, r *http.Request) {
