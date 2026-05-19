@@ -36,6 +36,11 @@ func (s *Service) RenderPNG(req CardRequest) ([]byte, error) {
 	return s.renderer.RenderPNG(toCardInput(req))
 }
 
+// RenderPNGWithMetrics returns PNG bytes along with timing metrics
+func (s *Service) RenderPNGWithMetrics(req CardRequest) ([]byte, *render.GenerationMetrics, error) {
+	return s.renderer.RenderPNGWithMetrics(toCardInput(req))
+}
+
 func (s *Service) RenderArchive(items []CardRequest) ([]byte, error) {
 	converted := make([]render.CardInput, 0, len(items))
 	for _, item := range items {
