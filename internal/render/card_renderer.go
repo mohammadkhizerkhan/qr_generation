@@ -15,7 +15,9 @@ import (
 	"time"
 
 	"github.com/fogleman/gg"
+	"github.com/golang/freetype/truetype"
 	"golang.org/x/image/draw"
+	"golang.org/x/image/font"
 	"golang.org/x/image/font/basicfont"
 
 	"github.com/mohammadkhizerkhan/qr_generation/assets"
@@ -58,20 +60,31 @@ type PreparedTemplate struct {
 }
 
 type Renderer struct {
-	skipQR   *qr.Generator
-	yeqownQR *qr.YeqownGenerator
-	pigligQR *qr.PigligGenerator
-	prepared *PreparedTemplate
-	layout   Layout
-	style    Style
-	logPerf  bool
+	skipQR        *qr.Generator
+	yeqownQR      *qr.YeqownGenerator
+	pigligQR      *qr.PigligGenerator
+	prepared      *PreparedTemplate
+	layout        Layout
+	style         Style
+	merchantFont  *truetype.Font
+	secondaryFont *truetype.Font
+	logPerf       bool
 }
 
 func NewRenderer() *Renderer {
 	layout := DefaultLayout()
 	style := DefaultStyle()
+	merchantFont, secondaryFont, fontErr := loadInterFonts()
+	if fontErr != nil {
+		log.Printf("qr_renderer inter_font=false err=%v fallback=basicfont", fontErr)
+		merchantFont = nil
+		secondaryFont = nil
+	}
+
+	secondaryFace := createFace(secondaryFont)
+	defer closeFace(secondaryFace)
 	prepareStart := time.Now()
-	prepared, err := prepareTemplate(layout, style)
+	prepared, err := prepareTemplate(layout, style, secondaryFace)
 	if err != nil {
 		panic(err)
 	}
@@ -82,13 +95,15 @@ func NewRenderer() *Renderer {
 	}
 
 	return &Renderer{
-		skipQR:   qr.NewGenerator(layout.QRSize),
-		yeqownQR: qr.NewYeqownGenerator(layout.QRSize),
-		pigligQR: qr.NewPigligGenerator(layout.QRSize),
-		prepared: prepared,
-		layout:   layout,
-		style:    style,
-		logPerf:  logPerf,
+		skipQR:        qr.NewGenerator(layout.QRSize),
+		yeqownQR:      qr.NewYeqownGenerator(layout.QRSize),
+		pigligQR:      qr.NewPigligGenerator(layout.QRSize),
+		prepared:      prepared,
+		layout:        layout,
+		style:         style,
+		merchantFont:  merchantFont,
+		secondaryFont: secondaryFont,
+		logPerf:       logPerf,
 	}
 }
 
@@ -167,13 +182,16 @@ func (r *Renderer) RenderPNGWithMetrics(input CardInput) ([]byte, *GenerationMet
 	dc := gg.NewContext(r.layout.Width, r.layout.Height)
 	dc.SetColor(style.Background)
 	dc.Clear()
+	merchantFace, secondaryFace := r.newRenderFaces()
+	defer closeFace(merchantFace)
+	defer closeFace(secondaryFace)
 
 	dc.SetColor(style.Text)
-	dc.SetFontFace(basicfont.Face7x13)
+	dc.SetFontFace(merchantFace)
 	drawCenteredLines(dc, strings.ToUpper(merchantName), float64(r.layout.Width)/2, r.layout.HeaderY, 3)
 
 	dc.SetColor(style.Muted)
-	dc.SetFontFace(basicfont.Face7x13)
+	dc.SetFontFace(secondaryFace)
 	drawCenteredLines(dc, "My UPI ID: "+merchantUPIID, float64(r.layout.Width)/2, r.layout.UPIIDY, 2)
 
 	dc.SetColor(style.Muted)
@@ -181,7 +199,7 @@ func (r *Renderer) RenderPNGWithMetrics(input CardInput) ([]byte, *GenerationMet
 	dc.DrawLine(260, r.layout.DividerY, float64(r.layout.Width-260), r.layout.DividerY)
 	dc.Stroke()
 
-	dc.SetFontFace(basicfont.Face7x13)
+	dc.SetFontFace(secondaryFace)
 	drawCenteredLines(dc, description, float64(r.layout.Width)/2, r.layout.DescriptionY, 2)
 
 	dc.DrawImage(qrImage, r.layout.QRX, r.layout.QRY)
@@ -214,13 +232,16 @@ func (r *Renderer) renderPreparedPNG(merchantName, merchantUPIID string, qrImage
 	base := cloneRGBA(r.prepared.base)
 	dc := gg.NewContextForRGBA(base)
 	drawStart := time.Now()
+	merchantFace, secondaryFace := r.newRenderFaces()
+	defer closeFace(merchantFace)
+	defer closeFace(secondaryFace)
 
 	dc.SetColor(r.prepared.style.Text)
-	dc.SetFontFace(basicfont.Face7x13)
+	dc.SetFontFace(merchantFace)
 	drawCenteredLines(dc, strings.ToUpper(merchantName), float64(r.prepared.layout.Width)/2, r.prepared.layout.HeaderY, 3)
 
 	dc.SetColor(r.prepared.style.Muted)
-	dc.SetFontFace(basicfont.Face7x13)
+	dc.SetFontFace(secondaryFace)
 	drawCenteredLines(dc, "My UPI ID: "+merchantUPIID, float64(r.prepared.layout.Width)/2, r.prepared.layout.UPIIDY, 2)
 
 	dc.DrawImage(qrImage, r.prepared.layout.QRX, r.prepared.layout.QRY)
@@ -236,7 +257,7 @@ func (r *Renderer) renderPreparedPNG(merchantName, merchantUPIID string, qrImage
 	return buf.Bytes(), drawDuration, encodeDuration, float64(time.Since(begin).Microseconds()) / 1000, nil
 }
 
-func prepareTemplate(layout Layout, style Style) (*PreparedTemplate, error) {
+func prepareTemplate(layout Layout, style Style, secondaryFace font.Face) (*PreparedTemplate, error) {
 	base := image.NewRGBA(image.Rect(0, 0, layout.Width, layout.Height))
 	dc := gg.NewContextForRGBA(base)
 	dc.SetColor(style.Background)
@@ -248,7 +269,7 @@ func prepareTemplate(layout Layout, style Style) (*PreparedTemplate, error) {
 	dc.Stroke()
 
 	dc.SetColor(style.Muted)
-	dc.SetFontFace(basicfont.Face7x13)
+	dc.SetFontFace(secondaryFace)
 	drawCenteredLines(dc, "Scan this QR code with any UPI app to transfer", float64(layout.Width)/2, layout.DescriptionY, 2)
 
 	brandImage, err := decodeAssetImage(assets.IDFCBrand)
@@ -265,6 +286,43 @@ func prepareTemplate(layout Layout, style Style) (*PreparedTemplate, error) {
 		style:       style,
 		description: "Scan this QR code with any UPI app to transfer",
 	}, nil
+}
+
+func loadInterFonts() (*truetype.Font, *truetype.Font, error) {
+	regularFont, err := truetype.Parse(assets.InterRegular)
+	if err != nil {
+		return nil, nil, fmt.Errorf("parse inter regular: %w", err)
+	}
+	boldFont, err := truetype.Parse(assets.InterBold)
+	if err != nil {
+		return nil, nil, fmt.Errorf("parse inter bold: %w", err)
+	}
+	return boldFont, regularFont, nil
+}
+
+func createFace(parsed *truetype.Font) font.Face {
+	if parsed == nil {
+		return basicfont.Face7x13
+	}
+	return truetype.NewFace(parsed, &truetype.Options{
+		Size:    16,
+		DPI:     72,
+		Hinting: font.HintingFull,
+	})
+}
+
+func closeFace(face font.Face) {
+	closer, ok := face.(interface{ Close() error })
+	if !ok {
+		return
+	}
+	_ = closer.Close()
+}
+
+func (r *Renderer) newRenderFaces() (font.Face, font.Face) {
+	merchantFace := createFace(r.merchantFont)
+	secondaryFace := createFace(r.secondaryFont)
+	return merchantFace, secondaryFace
 }
 
 func (r *Renderer) logMetrics(metrics *GenerationMetrics) {
