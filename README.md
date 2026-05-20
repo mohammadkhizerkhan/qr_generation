@@ -39,14 +39,14 @@ Example request:
 
 ```json
 {
-	"upi_uri": "upi://pay?pa=simbapvt7140@idfcbank&pn=Simba%20Pvt%20Ltd&tn=Invoice%201234",
-	"merchant_name": "Simba Pvt Ltd",
-	"merchant_upi_id": "simbapvt7140@idfcbank",
-	"description": "Invoice 1234",
-	"provider_name": "IDFC First Bank",
-	"payer_name": "Mohammad Khizer Khan",
-	"qr_generator": "piglig",
-	"accent_color": "#9f1a1a"
+  "upi_uri": "upi://pay?pa=simbapvt7140@idfcbank&pn=Simba%20Pvt%20Ltd&tn=Invoice%201234",
+  "merchant_name": "Simba Pvt Ltd",
+  "merchant_upi_id": "simbapvt7140@idfcbank",
+  "description": "Invoice 1234",
+  "provider_name": "IDFC First Bank",
+  "payer_name": "Mohammad Khizer Khan",
+  "qr_generator": "piglig",
+  "accent_color": "#9f1a1a"
 }
 ```
 
@@ -71,18 +71,18 @@ Returns `application/zip`.
 
 ```json
 {
-	"items": [
-		{
-			"upi_uri": "upi://pay?pa=simbapvt7140@idfcbank&pn=Simba%20Pvt%20Ltd&tn=Invoice%201234",
-			"merchant_name": "Simba Pvt Ltd",
-			"payer_name": "Alice"
-		},
-		{
-			"upi_uri": "upi://pay?pa=simbapvt7140@idfcbank&pn=Simba%20Pvt%20Ltd&tn=Invoice%201235",
-			"merchant_name": "Simba Pvt Ltd",
-			"payer_name": "Bob"
-		}
-	]
+  "items": [
+    {
+      "upi_uri": "upi://pay?pa=simbapvt7140@idfcbank&pn=Simba%20Pvt%20Ltd&tn=Invoice%201234",
+      "merchant_name": "Simba Pvt Ltd",
+      "payer_name": "Alice"
+    },
+    {
+      "upi_uri": "upi://pay?pa=simbapvt7140@idfcbank&pn=Simba%20Pvt%20Ltd&tn=Invoice%201235",
+      "merchant_name": "Simba Pvt Ltd",
+      "payer_name": "Bob"
+    }
+  ]
 }
 ```
 
@@ -129,4 +129,8 @@ pngData, err := svc.RenderPNG(qrgen.CardRequest{
 
 ```bash
 go test ./...
+```
+
+```go
+go run ./scripts/generate_batch_payload.go -n 5000 -out testdata/batch_payload_5000.json
 ```

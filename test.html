@@ -1,0 +1,538 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>QR Endpoint Test Harness</title>
+    <style>
+      :root {
+        --bg: #f4efe6;
+        --panel: #fffdf9;
+        --ink: #201815;
+        --muted: #6f625d;
+        --accent: #9f1a1a;
+        --accent-2: #165a52;
+        --line: rgba(32, 24, 21, 0.12);
+        --shadow: 0 18px 60px rgba(32, 24, 21, 0.12);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: "Segoe UI", Tahoma, Arial, sans-serif;
+        color: var(--ink);
+        background:
+          radial-gradient(
+            circle at top left,
+            rgba(159, 26, 26, 0.16),
+            transparent 32%
+          ),
+          radial-gradient(
+            circle at right 20%,
+            rgba(22, 90, 82, 0.12),
+            transparent 26%
+          ),
+          linear-gradient(180deg, #f7f1e8 0%, var(--bg) 100%);
+      }
+
+      .shell {
+        max-width: 1120px;
+        margin: 0 auto;
+        padding: 32px 18px 48px;
+      }
+
+      .hero {
+        display: grid;
+        gap: 14px;
+        margin-bottom: 20px;
+      }
+
+      .eyebrow {
+        text-transform: uppercase;
+        letter-spacing: 0.22em;
+        color: var(--accent);
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: clamp(28px, 4vw, 48px);
+        line-height: 1.02;
+        letter-spacing: -0.04em;
+      }
+
+      .subhead {
+        max-width: 760px;
+        color: var(--muted);
+        font-size: 15px;
+        line-height: 1.6;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1.3fr) minmax(320px, 0.7fr);
+        gap: 18px;
+      }
+
+      .card {
+        background: color-mix(in srgb, var(--panel) 96%, white 4%);
+        border: 1px solid var(--line);
+        border-radius: 24px;
+        box-shadow: var(--shadow);
+        overflow: hidden;
+      }
+
+      .card header {
+        padding: 18px 20px 14px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .card h2 {
+        margin: 0;
+        font-size: 18px;
+      }
+
+      .card p {
+        margin: 8px 0 0;
+        color: var(--muted);
+        font-size: 14px;
+        line-height: 1.5;
+      }
+
+      .content {
+        padding: 18px 20px 20px;
+      }
+
+      .actions {
+        display: grid;
+        gap: 12px;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      button,
+      .file-label {
+        appearance: none;
+        border: 0;
+        border-radius: 14px;
+        padding: 14px 16px;
+        font-size: 15px;
+        font-weight: 700;
+        cursor: pointer;
+        transition:
+          transform 0.15s ease,
+          box-shadow 0.15s ease,
+          opacity 0.15s ease;
+        box-shadow: 0 10px 24px rgba(32, 24, 21, 0.08);
+      }
+
+      button:hover,
+      .file-label:hover {
+        transform: translateY(-1px);
+      }
+
+      button:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+        transform: none;
+      }
+
+      .primary {
+        background: linear-gradient(135deg, var(--accent), #c23a26);
+        color: white;
+      }
+
+      .secondary {
+        background: linear-gradient(135deg, #204d70, #2b6b97);
+        color: white;
+      }
+
+      .neutral {
+        background: linear-gradient(135deg, #f2ece3, #e8dfd4);
+        color: var(--ink);
+      }
+
+      .stack {
+        display: grid;
+        gap: 14px;
+      }
+
+      textarea,
+      pre,
+      input[type="text"] {
+        width: 100%;
+        border-radius: 16px;
+        border: 1px solid var(--line);
+        background: #fff;
+        color: var(--ink);
+        font: inherit;
+      }
+
+      textarea {
+        min-height: 220px;
+        padding: 14px;
+        resize: vertical;
+        font-family: Consolas, "Liberation Mono", Menlo, monospace;
+        font-size: 13px;
+        line-height: 1.55;
+      }
+
+      .row {
+        display: grid;
+        gap: 10px;
+      }
+
+      .row.two {
+        grid-template-columns: 1fr auto;
+        align-items: end;
+      }
+
+      .field {
+        display: grid;
+        gap: 8px;
+      }
+
+      .label {
+        font-size: 13px;
+        font-weight: 700;
+        color: var(--muted);
+      }
+
+      input[type="file"] {
+        display: none;
+      }
+
+      .file-label {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(135deg, #1f6a5d, #2e8a74);
+        color: white;
+        user-select: none;
+      }
+
+      .meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px 14px;
+        margin-top: 10px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .pill {
+        padding: 8px 12px;
+        border-radius: 999px;
+        background: rgba(32, 24, 21, 0.04);
+        border: 1px solid var(--line);
+      }
+
+      .status {
+        margin-top: 14px;
+        padding: 14px 16px;
+        border-radius: 16px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.8);
+        min-height: 56px;
+        white-space: pre-wrap;
+        line-height: 1.55;
+      }
+
+      .results {
+        display: grid;
+        gap: 12px;
+      }
+
+      pre {
+        margin: 0;
+        padding: 14px;
+        min-height: 160px;
+        max-height: 420px;
+        overflow: auto;
+        font-size: 12px;
+        line-height: 1.5;
+      }
+
+      @media (max-width: 900px) {
+        .grid {
+          grid-template-columns: 1fr;
+        }
+
+        .actions {
+          grid-template-columns: 1fr;
+        }
+
+        .row.two {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <section class="hero">
+        <div class="eyebrow">Local endpoint harness</div>
+        <h1>Exercise QR render and batch APIs from one page.</h1>
+        <div class="subhead">
+          Open this file directly in the browser, keep the server on
+          <strong>localhost:8080</strong>, and use the buttons below to download
+          PNGs, inspect metrics, or generate a ZIP from a local 5k JSON payload.
+        </div>
+      </section>
+
+      <section class="grid">
+        <article class="card">
+          <header>
+            <h2>Actions</h2>
+            <p>
+              Each button sends a hardcoded sample request, except batch which
+              reads the selected JSON file.
+            </p>
+          </header>
+          <div class="content stack">
+            <div class="actions">
+              <button class="neutral" onclick="pingHealth()">
+                Check healthz
+              </button>
+              <button class="primary" onclick="downloadRenderPng()">
+                Render PNG
+              </button>
+              <button class="secondary" onclick="downloadRenderMetrics()">
+                Render metrics JSON
+              </button>
+              <button class="primary" onclick="downloadBatchZip()">
+                Batch ZIP
+              </button>
+            </div>
+
+            <div class="field">
+              <div class="label">Batch payload file</div>
+              <div class="row two">
+                <div>
+                  <label class="file-label" for="batch-file"
+                    >Choose local JSON</label
+                  >
+                  <input
+                    id="batch-file"
+                    type="file"
+                    accept="application/json,.json" />
+                </div>
+                <button class="neutral" onclick="loadSampleBatch()">
+                  Use sample 2-item payload
+                </button>
+              </div>
+              <div class="meta">
+                <div class="pill" id="batch-file-name">No file selected</div>
+                <div class="pill" id="batch-count">0 batch items</div>
+              </div>
+            </div>
+
+            <div class="field">
+              <div class="label">Sample render payload</div>
+              <textarea id="render-payload"></textarea>
+            </div>
+
+            <div class="field">
+              <div class="label">Batch payload preview</div>
+              <textarea id="batch-payload"></textarea>
+            </div>
+
+            <div id="status" class="status">Ready.</div>
+          </div>
+        </article>
+
+        <aside class="card">
+          <header>
+            <h2>Result preview</h2>
+            <p>
+              Health and metrics responses appear here so you can spot issues
+              without opening DevTools.
+            </p>
+          </header>
+          <div class="content results">
+            <pre id="result-json">No response yet.</pre>
+          </div>
+        </aside>
+      </section>
+    </div>
+
+    <script>
+      const API_BASE = "http://localhost:8080";
+      const SAMPLE_RENDER = {
+        upi_uri:
+          "upi://pay?pa=simbapvt7140@idfcbank&pn=Simba%20Pvt%20Ltd&tn=Invoice%201234&am=249.50&cu=INR",
+        merchant_name: "Simba Pvt Ltd",
+        merchant_upi_id: "simbapvt7140@idfcbank",
+        payer_name: "Alice",
+        description: "Invoice 1234 payment",
+      };
+      const SAMPLE_BATCH = {
+        items: [
+          {
+            upi_uri:
+              "upi://pay?pa=simbapvt7140@idfcbank&pn=Simba%20Pvt%20Ltd&tn=Invoice%201234&am=249.50&cu=INR",
+            merchant_name: "Simba Pvt Ltd",
+            payer_name: "Alice",
+            description: "Invoice 1234 payment",
+          },
+          {
+            upi_uri:
+              "upi://pay?pa=simbapvt7140@idfcbank&pn=Simba%20Pvt%20Ltd&tn=Invoice%201235&am=498.00&cu=INR",
+            merchant_name: "Simba Pvt Ltd",
+            payer_name: "Bob",
+            description: "Invoice 1235 payment",
+          },
+        ],
+      };
+
+      const statusEl = document.getElementById("status");
+      const resultEl = document.getElementById("result-json");
+      const batchFileInput = document.getElementById("batch-file");
+      const batchFileNameEl = document.getElementById("batch-file-name");
+      const batchCountEl = document.getElementById("batch-count");
+      const renderPayloadEl = document.getElementById("render-payload");
+      const batchPayloadEl = document.getElementById("batch-payload");
+
+      renderPayloadEl.value = JSON.stringify(SAMPLE_RENDER, null, 2);
+      batchPayloadEl.value = JSON.stringify(SAMPLE_BATCH, null, 2);
+      updateBatchSummary(SAMPLE_BATCH);
+
+      batchFileInput.addEventListener("change", async () => {
+        const file = batchFileInput.files && batchFileInput.files[0];
+        if (!file) {
+          batchFileNameEl.textContent = "No file selected";
+          return;
+        }
+        batchFileNameEl.textContent = file.name;
+        const text = await file.text();
+        batchPayloadEl.value = text;
+        try {
+          updateBatchSummary(JSON.parse(text));
+        } catch (err) {
+          batchCountEl.textContent = "Invalid JSON";
+        }
+      });
+
+      function setStatus(message) {
+        statusEl.textContent = message;
+      }
+
+      function setResult(value) {
+        resultEl.textContent =
+          typeof value === "string" ? value : JSON.stringify(value, null, 2);
+      }
+
+      function downloadBlob(blob, filename) {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      }
+
+      async function fetchJson(path) {
+        const res = await fetch(`${API_BASE}${path}`);
+        const text = await res.text();
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}: ${text}`);
+        }
+        return text;
+      }
+
+      async function postJson(path, payload) {
+        const res = await fetch(`${API_BASE}${path}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+        }
+        return res;
+      }
+
+      async function pingHealth() {
+        setStatus("Checking healthz...");
+        try {
+          const text = await fetchJson("/healthz");
+          setStatus("Health check ok.");
+          setResult(text);
+        } catch (err) {
+          setStatus(`Health check failed: ${err.message}`);
+          setResult(String(err));
+        }
+      }
+
+      async function downloadRenderPng() {
+        setStatus("Requesting render PNG...");
+        try {
+          const res = await postJson("/v1/render", SAMPLE_RENDER);
+          const blob = await res.blob();
+          downloadBlob(blob, "upi-render.png");
+          setStatus("PNG download started.");
+          setResult({ endpoint: "/v1/render", bytes: blob.size });
+        } catch (err) {
+          setStatus(`Render failed: ${err.message}`);
+          setResult(String(err));
+        }
+      }
+
+      async function downloadRenderMetrics() {
+        setStatus("Requesting render metrics JSON...");
+        try {
+          const res = await postJson("/v1/render-metrics", SAMPLE_RENDER);
+          const text = await res.text();
+          downloadBlob(
+            new Blob([text], { type: "application/json" }),
+            "render-metrics.json",
+          );
+          setStatus("Metrics JSON download started.");
+          setResult(JSON.parse(text));
+        } catch (err) {
+          setStatus(`Metrics request failed: ${err.message}`);
+          setResult(String(err));
+        }
+      }
+
+      async function downloadBatchZip() {
+        setStatus("Preparing batch ZIP request...");
+        try {
+          const payloadText = batchPayloadEl.value.trim();
+          const payload = JSON.parse(payloadText);
+          const res = await postJson("/v1/batch", payload);
+          const blob = await res.blob();
+          downloadBlob(blob, "upi-batch.zip");
+          setStatus(
+            `ZIP download started for ${payload.items?.length || 0} items.`,
+          );
+          setResult({
+            endpoint: "/v1/batch",
+            items: payload.items?.length || 0,
+            bytes: blob.size,
+          });
+        } catch (err) {
+          setStatus(`Batch failed: ${err.message}`);
+          setResult(String(err));
+        }
+      }
+
+      function loadSampleBatch() {
+        batchFileInput.value = "";
+        batchFileNameEl.textContent = "Sample 2-item payload";
+        batchPayloadEl.value = JSON.stringify(SAMPLE_BATCH, null, 2);
+        updateBatchSummary(SAMPLE_BATCH);
+        setStatus("Loaded the sample batch payload.");
+      }
+
+      function updateBatchSummary(payload) {
+        const count = Array.isArray(payload.items) ? payload.items.length : 0;
+        batchCountEl.textContent = `${count} batch items`;
+      }
+    </script>
+  </body>
+</html>
