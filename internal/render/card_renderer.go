@@ -12,6 +12,7 @@ import (
 	"math"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/fogleman/gg"
@@ -49,6 +50,10 @@ type GenerationMetrics struct {
 	QRGeneratorUsed          string             // Which QR generator was used (skip2, yeqown, piglig)
 	RenderMode               string             // prepared or legacy
 	GeneratorTimingsMs       map[string]float64 // Individual timings for each generator (for comparison)
+	CloneDurationMs          float64            // Time to copy prepared base into working buffer
+	FaceCreateDurationMs     float64            // Time to create font faces per request
+	TextDrawDurationMs       float64            // Time to draw merchant name and UPI ID text
+	QRDrawDurationMs         float64            // Time to draw QR image onto canvas
 }
 
 type PreparedTemplate struct {
@@ -57,6 +62,15 @@ type PreparedTemplate struct {
 	layout      Layout
 	style       Style
 	description string
+}
+
+type preparedMetrics struct {
+	cloneMs      float64 // pool get + draw.Draw + gg context
+	faceCreateMs float64 // createFace × 2
+	textDrawMs   float64 // drawCenteredLines × 2
+	qrDrawMs     float64 // dc.DrawImage
+	encodeMs     float64 // png.Encode
+	totalMs      float64 // full function duration
 }
 
 type Renderer struct {
@@ -68,6 +82,7 @@ type Renderer struct {
 	style         Style
 	merchantFont  *truetype.Font
 	secondaryFont *truetype.Font
+	rgbaPool      sync.Pool
 	logPerf       bool
 }
 
@@ -103,7 +118,12 @@ func NewRenderer() *Renderer {
 		style:         style,
 		merchantFont:  merchantFont,
 		secondaryFont: secondaryFont,
-		logPerf:       logPerf,
+		rgbaPool: sync.Pool{
+			New: func() any {
+				return image.NewRGBA(image.Rect(0, 0, layout.Width, layout.Height))
+			},
+		},
+		logPerf: logPerf,
 	}
 }
 
@@ -157,20 +177,22 @@ func (r *Renderer) RenderPNGWithMetrics(input CardInput) ([]byte, *GenerationMet
 	metrics.GeneratorTimingsMs = qrMetrics.GeneratorTimingsMs
 
 	if r.canUsePreparedTemplate() {
-		log.Printf("using existing template")
-		pngData, drawDuration, encodeDuration, templateDuration, err := r.renderPreparedPNG(merchantName, merchantUPIID, qrImage)
+		pngData, pm, err := r.renderPreparedPNG(merchantName, merchantUPIID, qrImage)
 		if err != nil {
 			return nil, nil, err
 		}
-		metrics.DrawDurationMs = drawDuration
-		metrics.EncodeDurationMs = encodeDuration
-		metrics.TemplateRenderDurationMs = templateDuration
+		metrics.CloneDurationMs = pm.cloneMs
+		metrics.FaceCreateDurationMs = pm.faceCreateMs
+		metrics.TextDrawDurationMs = pm.textDrawMs
+		metrics.QRDrawDurationMs = pm.qrDrawMs
+		metrics.DrawDurationMs = pm.cloneMs + pm.faceCreateMs + pm.textDrawMs + pm.qrDrawMs
+		metrics.EncodeDurationMs = pm.encodeMs
+		metrics.TemplateRenderDurationMs = pm.totalMs
 		metrics.RenderMode = "prepared"
 		metrics.TotalRenderDurationMs = float64(time.Since(begin).Microseconds()) / 1000
 		r.logMetrics(metrics)
 		return pngData, metrics, nil
 	}
-	log.Printf("using new template")
 	metrics.RenderMode = "legacy"
 
 	style, err := r.resolveStyle(input)
@@ -227,34 +249,46 @@ func (r *Renderer) canUsePreparedTemplate() bool {
 	return r.prepared != nil
 }
 
-func (r *Renderer) renderPreparedPNG(merchantName, merchantUPIID string, qrImage image.Image) ([]byte, float64, float64, float64, error) {
+func (r *Renderer) renderPreparedPNG(merchantName, merchantUPIID string, qrImage image.Image) ([]byte, preparedMetrics, error) {
 	begin := time.Now()
-	base := cloneRGBA(r.prepared.base)
+	var pm preparedMetrics
+
+	cloneStart := time.Now()
+	base := r.rgbaPool.Get().(*image.RGBA)
+	draw.Draw(base, base.Bounds(), r.prepared.base, r.prepared.base.Bounds().Min, draw.Src)
 	dc := gg.NewContextForRGBA(base)
-	drawStart := time.Now()
+	pm.cloneMs = ms(cloneStart)
+
+	faceStart := time.Now()
 	merchantFace, secondaryFace := r.newRenderFaces()
 	defer closeFace(merchantFace)
 	defer closeFace(secondaryFace)
+	pm.faceCreateMs = ms(faceStart)
 
+	textStart := time.Now()
 	dc.SetColor(r.prepared.style.Text)
 	dc.SetFontFace(merchantFace)
 	drawCenteredLines(dc, strings.ToUpper(merchantName), float64(r.prepared.layout.Width)/2, r.prepared.layout.HeaderY, 3)
-
 	dc.SetColor(r.prepared.style.Muted)
 	dc.SetFontFace(secondaryFace)
 	drawCenteredLines(dc, "My UPI ID: "+merchantUPIID, float64(r.prepared.layout.Width)/2, r.prepared.layout.UPIIDY, 2)
+	pm.textDrawMs = ms(textStart)
 
+	qrStart := time.Now()
 	dc.DrawImage(qrImage, r.prepared.layout.QRX, r.prepared.layout.QRY)
-	drawDuration := float64(time.Since(drawStart).Microseconds()) / 1000
+	pm.qrDrawMs = ms(qrStart)
 
 	var buf bytes.Buffer
 	encodeStart := time.Now()
 	if err := png.Encode(&buf, dc.Image()); err != nil {
-		return nil, 0, 0, 0, fmt.Errorf("encode prepared png: %w", err)
+		r.rgbaPool.Put(base)
+		return nil, preparedMetrics{}, fmt.Errorf("encode prepared png: %w", err)
 	}
-	encodeDuration := float64(time.Since(encodeStart).Microseconds()) / 1000
+	pm.encodeMs = ms(encodeStart)
+	r.rgbaPool.Put(base)
 
-	return buf.Bytes(), drawDuration, encodeDuration, float64(time.Since(begin).Microseconds()) / 1000, nil
+	pm.totalMs = ms(begin)
+	return buf.Bytes(), pm, nil
 }
 
 func prepareTemplate(layout Layout, style Style, secondaryFace font.Face) (*PreparedTemplate, error) {
@@ -319,6 +353,10 @@ func closeFace(face font.Face) {
 	_ = closer.Close()
 }
 
+func ms(t time.Time) float64 {
+	return float64(time.Since(t).Microseconds()) / 1000
+}
+
 func (r *Renderer) newRenderFaces() (font.Face, font.Face) {
 	merchantFace := createFace(r.merchantFont)
 	secondaryFace := createFace(r.secondaryFont)
@@ -329,7 +367,10 @@ func (r *Renderer) logMetrics(metrics *GenerationMetrics) {
 	if !r.logPerf {
 		return
 	}
-	log.Printf("qr_renderer mode=%s total_ms=%.2f validate_ms=%.2f qr_ms=%.2f draw_ms=%.2f encode_ms=%.2f template_ms=%.2f generator=%s", metrics.RenderMode, metrics.TotalRenderDurationMs, metrics.ValidationDurationMs, metrics.QRGenerationDurationMs, metrics.DrawDurationMs, metrics.EncodeDurationMs, metrics.TemplateRenderDurationMs, metrics.QRGeneratorUsed)
+	log.Printf("qr_renderer mode=%s total_ms=%.2f validate_ms=%.2f qr_ms=%.2f clone_ms=%.2f face_ms=%.2f text_ms=%.2f qr_draw_ms=%.2f draw_ms=%.2f encode_ms=%.2f template_ms=%.2f generator=%s",
+		metrics.RenderMode, metrics.TotalRenderDurationMs, metrics.ValidationDurationMs, metrics.QRGenerationDurationMs,
+		metrics.CloneDurationMs, metrics.FaceCreateDurationMs, metrics.TextDrawDurationMs, metrics.QRDrawDurationMs,
+		metrics.DrawDurationMs, metrics.EncodeDurationMs, metrics.TemplateRenderDurationMs, metrics.QRGeneratorUsed)
 }
 
 func (r *Renderer) qrImage(content, backend string) (image.Image, error) {
