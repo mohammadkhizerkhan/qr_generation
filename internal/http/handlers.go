@@ -118,6 +118,7 @@ func toCardRequest(req GenerateRequest) qrgen.CardRequest {
 		MerchantName:    req.MerchantName,
 		MerchantUPIID:   req.MerchantUPIID,
 		Description:     req.Description,
+		RenderTemplate:  req.RenderTemplate,
 		PayerName:       req.PayerName,
 		LogoBase64:      req.LogoBase64,
 		QRGenerator:     req.QRGenerator,

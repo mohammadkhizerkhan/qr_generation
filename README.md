@@ -134,3 +134,22 @@ go test ./...
 ```go
 go run ./scripts/generate_batch_payload.go -n 5000 -out testdata/batch_payload_5000.json
 ```
+
+profiling command:
+http://localhost:6060/debug/pprof/heap — heap allocation profile
+http://localhost:6060/debug/pprof/profile — 30s CPU profile
+http://localhost:6060/debug/pprof/goroutine — goroutine dump
+http://localhost:6060/debug/pprof/trace — execution trace
+
+go tool pprof http://localhost:6060/debug/pprof/heap
+
+top10 Top 10 functions by heap allocation
+top10 -cum Top 10 by cumulative (includes callees) — better for finding root causes
+list renderPreparedPNG Line-by-line allocation breakdown for that function
+web Opens a flame graph in browser (requires Graphviz)
+png > heap.png Saves the call graph as an image
+What to look for:
+
+top10 -cum will show you where the most bytes are allocated — expect to see png.Encode, image.NewRGBA (if pool misses), and bytes.Buffer growth
+If image.NewRGBA shows up high, the rgbaPool is missing frequently (e.g. objects not being returned)
+bytes.Buffer in BuildArchive is a candidate for pooling if it shows high allocation

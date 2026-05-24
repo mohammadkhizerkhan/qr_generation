@@ -10,6 +10,7 @@ type CardRequest struct {
 	MerchantName    string `json:"merchant_name"`
 	MerchantUPIID   string `json:"merchant_upi_id,omitempty"`
 	Description     string `json:"description,omitempty"`
+	RenderTemplate  string `json:"render_template,omitempty"`
 	PayerName       string `json:"payer_name,omitempty"`
 	LogoBase64      string `json:"logo_base64,omitempty"`
 	QRGenerator     string `json:"qr_generator,omitempty"`
@@ -56,6 +57,7 @@ func toCardInput(req CardRequest) render.CardInput {
 		MerchantName:  req.MerchantName,
 		MerchantUPIID: req.MerchantUPIID,
 		Description:   req.Description,
+		RenderTemplate:req.RenderTemplate,
 		PayerName:     req.PayerName,
 		LogoBase64:    req.LogoBase64,
 		QRGenerator:   req.QRGenerator,

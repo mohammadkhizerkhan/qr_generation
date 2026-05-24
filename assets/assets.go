@@ -13,3 +13,6 @@ var InterRegular []byte
 
 //go:embed Inter_Bold.ttf
 var InterBold []byte
+
+//go:embed template_qr.png
+var TemplateQR []byte
